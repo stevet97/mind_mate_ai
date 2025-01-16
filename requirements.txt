@@ -1,6 +1,4 @@
 streamlit
 pdfplumber
 python-docx
-re
 requests
-logging
