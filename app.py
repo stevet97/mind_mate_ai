@@ -26,7 +26,7 @@ def main():
         "4. Optionally, download the combined file using the button."
     )
 
-    st.title("Data Ingestion for Emotional AI")
+    st.title("Data Ingestion for Mental Health AI")
     st.write("Upload your documents here to train the language model.")
     
     # Accept multiple files of certain types
