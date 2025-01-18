@@ -89,9 +89,9 @@ def main():
         # 1) Save files locally first
         file_paths = []
         with st.spinner("Saving uploaded files locally..."):
-            os.makedirs("uploaded_files", exist_ok=True)
+            os.makedirs("user_uploads", exist_ok=True)
             for uf in uploaded_files:
-                saved_path = os.path.join("uploaded_files", uf.name)
+                saved_path = os.path.join("user_uploads", uf.name)
                 with open(saved_path, "wb") as f:
                     f.write(uf.getbuffer())
                 file_paths.append(saved_path)
