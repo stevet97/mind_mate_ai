@@ -10,18 +10,10 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 
 def set_logging_level(level=logging.INFO):
-    """
-    Adjust logging verbosity. For example:
-        set_logging_level(logging.WARNING)
-        set_logging_level(logging.DEBUG)
-    """
     logging.getLogger().setLevel(level)
 
 
 def read_pdf(pdf_path):
-    """
-    Extract text from a PDF file using pdfplumber.
-    """
     try:
         with pdfplumber.open(pdf_path) as pdf:
             texts = []
@@ -36,9 +28,6 @@ def read_pdf(pdf_path):
 
 
 def read_docx(docx_path):
-    """
-    Extract text from a DOCX file using python-docx.
-    """
     try:
         document = docx.Document(docx_path)
         paragraphs = [p.text for p in document.paragraphs]
@@ -49,9 +38,6 @@ def read_docx(docx_path):
 
 
 def read_txt(txt_path):
-    """
-    Simple function to read a .txt file.
-    """
     try:
         with open(txt_path, 'r', encoding='utf-8') as f:
             return f.read()
@@ -61,37 +47,23 @@ def read_txt(txt_path):
 
 
 def domain_specific_clean(text):
-    """
-    Optionally, add additional mental-health-specific cleaning or
-    anonymization steps. Right now, it's just a placeholder that returns text.
-    """
-    # Example:
-    # text = re.sub(r"PATIENT:\s*[A-Z0-9]+", "[REDACTED PATIENT]", text)
+    # Add any extra steps unique to mental-health data.
     return text
 
 
 def clean_text(text):
-    """
-    Remove URLs and multiple spaces/newlines.
-    Adjust as needed for your domain (e.g., remove punctuation, special chars, etc.).
-    Also calls domain_specific_clean for mental-health text.
-    """
     # Remove URLs
     text = re.sub(r"http\S+", "", text)
     # Remove multiple spaces/newlines
     text = re.sub(r"\s+", " ", text).strip()
 
-    # Potential additional domain-specific cleaning
+    # Potential domain-specific steps
     text = domain_specific_clean(text)
 
     return text
 
 
 def read_and_clean_file(path):
-    """
-    Read and clean a file based on its extension. Returns the cleaned text.
-    Handles exceptions gracefully so a single bad file won't crash the entire process.
-    """
     if not os.path.isfile(path):
         logging.warning(f"Skipping non-existent file: {path}")
         return ""
@@ -112,48 +84,46 @@ def read_and_clean_file(path):
 
 def ingest_files(file_paths, output_path="combined_corpus.txt", max_workers=None):
     """
-    Reads multiple file types (PDF, DOCX, TXT), cleans the text,
-    then writes a combined .txt file at `output_path`.
+    Reads multiple file types (PDF, DOCX, TXT) using multiprocessing,
+    cleans the text, then writes everything to a single output file.
 
-    By default uses ProcessPoolExecutor to handle CPU-bound tasks
-    (like parsing PDFs). If you find it's more I/O-bound, switch back to
-    ThreadPoolExecutor.
-
-    If `max_workers` is None, we auto-determine a suitable number based on CPU cores.
+    We gather the processed text in the parent process (to avoid
+    file-handle issues) and then write it all in one pass.
     """
-    # Filter out non-existent paths
     valid_paths = [fp for fp in file_paths if os.path.isfile(fp)]
     if not valid_paths:
         logging.error("No valid file paths found. Exiting ingestion.")
         return
 
     if max_workers is None:
-        # Example heuristic: up to (num_cores + 4) but capped at 32
         max_workers = min(32, (multiprocessing.cpu_count() or 1) + 4)
 
     logging.info(f"Starting ingestion of {len(valid_paths)} files with {max_workers} workers...")
 
-    # We open the output file once and stream text line by line as it's processed
+    # Use a list to collect processed texts (avoid streaming in child processes)
+    processed_texts = []
     try:
-        with open(output_path, 'w', encoding='utf-8') as out_f:
-            # Using a local helper to process each file and write immediately
-            def process_path(path):
-                text = read_and_clean_file(path)
-                if text:
-                    out_f.write(text + "\n")
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # read_and_clean_file returns a string
+            results = executor.map(read_and_clean_file, valid_paths)
 
-            # Use ProcessPoolExecutor for potentially CPU-heavy PDF parsing
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                executor.map(process_path, valid_paths)
+            # Gather results in the parent
+            for text in results:
+                if text:
+                    processed_texts.append(text)
+
+        # Now write the combined result in the parent process
+        with open(output_path, 'w', encoding='utf-8') as out_f:
+            for txt in processed_texts:
+                out_f.write(txt + "\n")
 
         logging.info(f"Combined cleaned text saved to {output_path}")
     except Exception as e:
         logging.error(f"Could not write to output file '{output_path}': {e}")
 
 
-# Example usage if running this file directly
 if __name__ == "__main__":
-    set_logging_level(logging.INFO)  # or logging.WARNING/DEBUG, etc.
+    set_logging_level(logging.INFO)
 
     sample_files = [
         "sample1.pdf",
@@ -161,4 +131,5 @@ if __name__ == "__main__":
         "mental_health_notes.txt"
     ]
     ingest_files(sample_files, output_path="combined_corpus.txt")
+
 
