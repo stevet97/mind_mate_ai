@@ -6,6 +6,7 @@ import docx
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 
+# Import your get_toxicity_score function from toxic_filter
 from toxic_filter.toxic_filter import get_toxicity_score
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -44,7 +45,7 @@ def read_txt(txt_path):
         return ""
 
 def domain_specific_clean(text):
-    # Example: Additional domain cleaning steps if desired
+    # Add any mental-health-specific or domain-specific cleaning here if needed
     return text
 
 def clean_text(text):
@@ -52,7 +53,7 @@ def clean_text(text):
     text = re.sub(r"http\S+", "", text)
     # Remove multiple spaces/newlines
     text = re.sub(r"\s+", " ", text).strip()
-
+    # Domain-specific
     text = domain_specific_clean(text)
     return text
 
@@ -60,9 +61,9 @@ def process_file(path):
     """
     Returns a dict:
     {
-      'filename': <filename>,
-      'cleaned_text': <string>,
-      'toxicity': <float in [0,1]>
+        'filename': <str>,
+        'cleaned_text': <str>,
+        'toxicity': <float>
     }
     """
     if not os.path.isfile(path):
@@ -88,8 +89,16 @@ def process_file(path):
             "toxicity": 0.0
         }
 
+    # Clean
     cleaned = clean_text(raw_text)
+
+    # Get toxicity score, forcing it to float
     tox_score = get_toxicity_score(cleaned, max_length=1000)
+    if tox_score is None:
+        tox_score = 0.0
+    else:
+        # ensure numeric
+        tox_score = float(tox_score)
 
     return {
         "filename": os.path.basename(path),
@@ -115,16 +124,21 @@ def ingest_files(file_paths, output_path="combined_corpus.txt", max_workers=None
 
     results = []
     try:
-        # We gather file data in the parent after concurrency
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Each item is a dict with 'filename', 'cleaned_text', 'toxicity'
             for file_info in executor.map(process_file, valid_paths):
+                # If process_file returns None for any reason, replace with a default dict
+                if not file_info or not isinstance(file_info, dict):
+                    file_info = {
+                        "filename": "unknown",
+                        "cleaned_text": "",
+                        "toxicity": 0.0
+                    }
+                # Append to results
                 results.append(file_info)
 
-        # Write all text, including toxic, to the combined file
+        # Write to disk
         with open(output_path, 'w', encoding='utf-8') as out_f:
             for r in results:
-                # Add a small header marking which file it came from (optional)
                 out_f.write(f"=== File: {r['filename']} (Toxicity: {r['toxicity']:.2f}) ===\n")
                 out_f.write(r["cleaned_text"] + "\n\n")
 
@@ -143,4 +157,3 @@ if __name__ == "__main__":
     ]
     data = ingest_files(sample_files, output_path="combined_corpus.txt")
     print(data)  # e.g. see the toxicity metadata
-
