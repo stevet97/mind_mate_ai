@@ -1,15 +1,12 @@
-# data_ingestion/data_ingestion.py
-
 import logging
 import os
 import re
 import pdfplumber
 import docx
 import multiprocessing
-from concurrent.futures import ProcessPoolExecutor  # or ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
-# Import the toxicity function from our separate module
-from toxic_filter.toxic_filter import is_toxic
+from toxic_filter.toxic_filter import get_toxicity_score
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -47,7 +44,7 @@ def read_txt(txt_path):
         return ""
 
 def domain_specific_clean(text):
-    # Add any extra steps unique to mental-health data.
+    # Example: Additional domain cleaning steps if desired
     return text
 
 def clean_text(text):
@@ -56,15 +53,25 @@ def clean_text(text):
     # Remove multiple spaces/newlines
     text = re.sub(r"\s+", " ", text).strip()
 
-    # Potential domain-specific steps
     text = domain_specific_clean(text)
-
     return text
 
-def read_and_clean_file(path):
+def process_file(path):
+    """
+    Returns a dict:
+    {
+      'filename': <filename>,
+      'cleaned_text': <string>,
+      'toxicity': <float in [0,1]>
+    }
+    """
     if not os.path.isfile(path):
         logging.warning(f"Skipping non-existent file: {path}")
-        return ""
+        return {
+            "filename": os.path.basename(path),
+            "cleaned_text": "",
+            "toxicity": 0.0
+        }
 
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
@@ -75,49 +82,57 @@ def read_and_clean_file(path):
         raw_text = read_txt(path)
     else:
         logging.warning(f"Skipping unknown file type: {path}")
-        return ""
+        return {
+            "filename": os.path.basename(path),
+            "cleaned_text": "",
+            "toxicity": 0.0
+        }
 
-    # Basic cleaning
-    text = clean_text(raw_text)
+    cleaned = clean_text(raw_text)
+    tox_score = get_toxicity_score(cleaned, max_length=1000)
 
-    # Check toxicity
-    if is_toxic(text, threshold=0.5):
-        logging.warning(f"Skipping toxic content in file: {path}")
-        return ""
-
-    return text
+    return {
+        "filename": os.path.basename(path),
+        "cleaned_text": cleaned,
+        "toxicity": tox_score
+    }
 
 def ingest_files(file_paths, output_path="combined_corpus.txt", max_workers=None):
     """
     Reads multiple file types (PDF, DOCX, TXT) using multiprocessing,
-    cleans the text, then writes everything to a single output file.
-    We gather the processed text in the parent process and skip toxic data.
+    cleans the text, checks toxicity, then writes everything to a single output file.
+    Returns a list of dicts: [{'filename':..., 'toxicity':..., 'cleaned_text':...}, ...]
     """
     valid_paths = [fp for fp in file_paths if os.path.isfile(fp)]
     if not valid_paths:
         logging.error("No valid file paths found. Exiting ingestion.")
-        return
+        return []
 
     if max_workers is None:
         max_workers = min(32, (multiprocessing.cpu_count() or 1) + 4)
 
     logging.info(f"Starting ingestion of {len(valid_paths)} files with {max_workers} workers...")
 
-    processed_texts = []
+    results = []
     try:
+        # We gather file data in the parent after concurrency
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            results = executor.map(read_and_clean_file, valid_paths)
-            for text in results:
-                if text:
-                    processed_texts.append(text)
+            # Each item is a dict with 'filename', 'cleaned_text', 'toxicity'
+            for file_info in executor.map(process_file, valid_paths):
+                results.append(file_info)
 
+        # Write all text, including toxic, to the combined file
         with open(output_path, 'w', encoding='utf-8') as out_f:
-            for txt in processed_texts:
-                out_f.write(txt + "\n")
+            for r in results:
+                # Add a small header marking which file it came from (optional)
+                out_f.write(f"=== File: {r['filename']} (Toxicity: {r['toxicity']:.2f}) ===\n")
+                out_f.write(r["cleaned_text"] + "\n\n")
 
         logging.info(f"Combined cleaned text saved to {output_path}")
     except Exception as e:
         logging.error(f"Could not write to output file '{output_path}': {e}")
+
+    return results
 
 if __name__ == "__main__":
     set_logging_level(logging.INFO)
@@ -126,4 +141,6 @@ if __name__ == "__main__":
         "sample2.docx",
         "mental_health_notes.txt"
     ]
-    ingest_files(sample_files, output_path="combined_corpus.txt")
+    data = ingest_files(sample_files, output_path="combined_corpus.txt")
+    print(data)  # e.g. see the toxicity metadata
+
