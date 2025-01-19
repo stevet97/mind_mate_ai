@@ -6,6 +6,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+# Import the ingestion function
+# Make sure your data_ingestion/ingestion script has the skip_toxic logic
 from data_ingestion.data_ingestion import ingest_files
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -14,6 +16,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 # Constants / Config
 ########################################
 TOXICITY_THRESHOLD = 0.5
+SKIP_TOXIC = True  # we want to skip those >= 0.5
 GDRIVE_FOLDER_NAME = "My Drive / NOVA_project_data"
 FOLDER_ID = "1fpMg9W19LF6YDJVjgUq2aylUqPfF1M0R"  # your Google Drive folder ID
 
@@ -69,10 +72,9 @@ def toxicity_bar(tox_score: float):
 # The Streamlit App
 ########################################
 def main():
-    st.title("Data Ingestion & Google Drive Upload")
+    st.title("Data Ingestion & Google Drive Upload (Auto-Skip Toxic ≥ 0.5)")
     st.write("Upload your documents or paste text here to train the language model.")
-    
-    st.info(f"Note: All ingested files will be uploaded to **{GDRIVE_FOLDER_NAME}**.")
+    st.info(f"Note: All ingested files will be uploaded to **{GDRIVE_FOLDER_NAME}**, excluding any with toxicity ≥ {TOXICITY_THRESHOLD}.")
 
     # -- 1) File Uploader --
     uploaded_files = st.file_uploader(
@@ -124,27 +126,52 @@ def main():
             st.warning("No files or pasted text provided. Please upload or paste something.")
             return
 
-        # 3d) Ingest them
+        # 3d) Ingest them (auto-skipping toxic items)
         with st.spinner("Ingesting files..."):
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             output_path = f"combined_corpus_{timestamp}.txt"
-            results = ingest_files(file_paths, output_path=output_path)
+            results = ingest_files(
+                file_paths,
+                output_path=output_path,
+                skip_toxic=SKIP_TOXIC,
+                toxicity_threshold=TOXICITY_THRESHOLD
+            )
 
-        st.subheader("Toxicity Summary (Threshold=0.5)")
+        st.subheader(f"Toxicity Summary (Items ≥ {TOXICITY_THRESHOLD} excluded)")
 
         # 3e) Show a small table of results with color-coded bars
         if results:
+            # We'll separate them into "included" vs "excluded"
+            included = []
+            excluded = []
             for r in results:
-                tox = r["toxicity"]
-                file_name = r["filename"]
-                st.write(f"**{file_name}** => Toxicity: {tox:.2f}")
-                # Insert a color-coded bar
-                bar_html = toxicity_bar(tox)
-                st.markdown(bar_html, unsafe_allow_html=True)
+                if r["toxicity"] >= TOXICITY_THRESHOLD:
+                    excluded.append(r)
+                else:
+                    included.append(r)
 
-                # If above threshold, highlight
-                if tox >= TOXICITY_THRESHOLD:
-                    st.warning(f"**High toxicity** detected (≥ 0.5) in {file_name}")
+            # -- Included Items --
+            st.write("**Included in the final corpus:**")
+            if included:
+                for r in included:
+                    st.write(f"**{r['filename']}** => Toxicity: {r['toxicity']:.2f}")
+                    bar_html = toxicity_bar(r["toxicity"])
+                    st.markdown(bar_html, unsafe_allow_html=True)
+            else:
+                st.info("No items included (all were above the threshold).")
+
+            st.write("---")
+
+            # -- Excluded Items --
+            st.write("**Excluded (toxicity ≥ 0.5)**:")
+            if excluded:
+                for r in excluded:
+                    st.write(f"**{r['filename']}** => Toxicity: {r['toxicity']:.2f}")
+                    bar_html = toxicity_bar(r["toxicity"])
+                    st.markdown(bar_html, unsafe_allow_html=True)
+                st.warning(f"{len(excluded)} item(s) excluded from the final corpus.")
+            else:
+                st.info("No items were excluded for high toxicity.")
 
         # 3f) Upload combined corpus to Drive
         st.info(f"Uploading **{output_path}** to Google Drive folder: {GDRIVE_FOLDER_NAME}")
@@ -158,7 +185,7 @@ def main():
 
         # 3g) Provide download button
         st.write("---")
-        st.write("You can also download the combined_corpus.txt directly here:")
+        st.write("You can also download the final combined_corpus file here (excluding high-toxicity items):")
         with open(output_path, "rb") as f:
             st.download_button(
                 label="Download combined_corpus.txt",
