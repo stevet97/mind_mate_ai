@@ -9,16 +9,10 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# import concurrency ingestion logic from data_ingestion.py
-# which in turn imports is_toxic from toxic_filter
 from data_ingestion.data_ingestion import ingest_files
 
-# GLOBAL: SET LOGGING LEVEL
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-##############################
-# Authenticate with google drive
-##############################
 def get_drive_service():
     creds_dict = st.secrets["google_service_account"]
     credentials = service_account.Credentials.from_service_account_info(
@@ -43,9 +37,9 @@ def upload_to_gdrive(local_file_path, folder_id="1fpMg9W19LF6YDJVjgUq2aylUqPfF1M
 
     return uploaded_file.get("id")
 
-##############################
+########################################
 # The Streamlit App
-##############################
+########################################
 def main():
     st.title("Data Ingestion & Google Drive Upload")
     st.write("Upload your documents here to train the language model.")
@@ -84,8 +78,24 @@ def main():
         output_path = f"combined_corpus_{timestamp}.txt"
 
         with st.spinner("Ingesting files..."):
-            ingest_files(file_paths, output_path=output_path)
+            # ingest_files now returns a list of dicts with 'filename', 'toxicity', etc.
+            results = ingest_files(file_paths, output_path=output_path)
 
+        # Now let's highlight any file above our threshold
+        # Let's say 0.8 is quite high
+        TOXICITY_THRESHOLD = 0.8
+        high_toxic = [r for r in results if r['toxicity'] >= TOXICITY_THRESHOLD]
+
+        st.subheader("Toxicity Summary:")
+        if len(high_toxic) == 0:
+            st.write("No files exceeded the 0.8 toxicity threshold.")
+        else:
+            for r in high_toxic:
+                st.warning(
+                    f"File **{r['filename']}** has high toxicity: {r['toxicity']*100:.1f}%"
+                )
+
+        # We still upload everything to Drive
         st.info(f"Uploading **{output_path}** to Google Drive folder: {GDRIVE_FOLDER_NAME}")
 
         folder_id = "1fpMg9W19LF6YDJVjgUq2aylUqPfF1M0R"
@@ -109,5 +119,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
