@@ -1,6 +1,9 @@
 import streamlit as st
 import os
 import datetime
+import logging
+# Hugging Face Transformers
+from transformers import pipeline
 
 # 1) google client libraries
 from google.oauth2 import service_account
@@ -11,7 +14,35 @@ from googleapiclient.http import MediaFileUpload
 from data_ingestion.data_ingestion import ingest_files
 
 ########################################
-# authenticate with google drive
+# GLOBAL: SET LOGGING LEVEL
+########################################
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+########################################
+# Setup a TOXICITY CLASSIFIER pipeline
+########################################
+toxicity_classifier = pipeline(
+    "text-classification",
+    model="textdetox/xlmr-large-toxicity-classifier"
+)
+
+def is_toxic(text, threshold=0.5):
+    """
+    Classify text using the pipeline. If label == 'TOXIC' and score >= threshold,
+    we consider it toxic.
+    """
+    # For very large texts, you might want to chunk or sample. Example:
+    truncated_text = text[:1000]  # first 1000 chars
+    results = toxicity_classifier(truncated_text)
+
+    # Example result structure: [{"label": "TOXIC", "score": 0.99}]
+    for r in results:
+        if r["label"].upper() == "TOXIC" and r["score"] >= threshold:
+            return True
+    return False
+
+########################################
+# Authenticate with google drive
 ########################################
 def get_drive_service():
     """
