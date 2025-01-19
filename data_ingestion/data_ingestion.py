@@ -78,8 +78,16 @@ def read_and_clean_file(path):
     else:
         logging.warning(f"Skipping unknown file type: {path}")
         return ""
+        
+# Basic cleaning
+    text = clean_text(raw_text)
 
-    return clean_text(raw_text)
+    # 1) Check toxicity
+    if is_toxic(text, threshold=0.5):
+        logging.warning(f"Skipping toxic content in file: {path}")
+        return ""
+
+    return text
 
 
 def ingest_files(file_paths, output_path="combined_corpus.txt", max_workers=None):
