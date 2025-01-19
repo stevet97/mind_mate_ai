@@ -97,8 +97,9 @@ def main():
                     f.write(uf.getbuffer())
                 file_paths.append(saved_path)
 
-        # 2) Ingest them into combined_corpus.txt
-        output_path = "combined_corpus.txt"
+        # 2) Ingest them into combined_corpus.txt + unique file names
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = f"combined_corpus_{timestamp}.txt"
         with st.spinner("Ingesting files..."):
             ingest_files(file_paths, output_path=output_path)
         
