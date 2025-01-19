@@ -2,23 +2,25 @@
 
 from transformers import pipeline
 
-# Create a pipeline for toxicity classification
 toxicity_classifier = pipeline(
     "text-classification",
     model="textdetox/xlmr-large-toxicity-classifier"
 )
 
-def is_toxic(text, threshold=0.5):
+def get_toxicity_score(text, max_length=1000):
     """
-    Classify text using the pipeline. If label == 'TOXIC' and score >= threshold,
-    we consider it toxic.
+    Return a float in [0, 1], representing how 'toxic' the text is.
+    If the classifier doesn't label the text as 'TOXIC', score = 0.0.
+    Otherwise, it uses the 'score' from the model (probability).
     """
-    # For large texts, you might want to chunk or sample. Example:
-    truncated_text = text[:1000]  # first 1000 chars
+    # For large texts, we sample or truncate to 'max_length' chars
+    truncated_text = text[:max_length]
+
+    # The pipeline might return a list of dicts, e.g. [{"label": "TOXIC", "score": 0.99}]
     results = toxicity_classifier(truncated_text)
 
-    # Example result structure: [{"label": "TOXIC", "score": 0.99}]
+    # We'll assume the pipeline returns only one item in the list:
     for r in results:
-        if r["label"].upper() == "TOXIC" and r["score"] >= threshold:
-            return True
-    return False
+        if r["label"].upper() == "TOXIC":
+            return r["score"]
+    return 0.0
