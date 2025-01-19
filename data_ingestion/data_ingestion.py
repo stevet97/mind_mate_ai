@@ -6,7 +6,6 @@ import docx
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 
-# Import your get_toxicity_score function from toxic_filter
 from toxic_filter.toxic_filter import get_toxicity_score
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -89,15 +88,11 @@ def process_file(path):
             "toxicity": 0.0
         }
 
-    # Clean
     cleaned = clean_text(raw_text)
-
-    # Get toxicity score, forcing it to float
     tox_score = get_toxicity_score(cleaned, max_length=1000)
     if tox_score is None:
         tox_score = 0.0
     else:
-        # ensure numeric
         tox_score = float(tox_score)
 
     return {
@@ -106,11 +101,28 @@ def process_file(path):
         "toxicity": tox_score
     }
 
-def ingest_files(file_paths, output_path="combined_corpus.txt", max_workers=None):
+def ingest_files(
+    file_paths, 
+    output_path="combined_corpus.txt", 
+    max_workers=None, 
+    skip_toxic=True, 
+    toxicity_threshold=0.5
+):
     """
     Reads multiple file types (PDF, DOCX, TXT) using multiprocessing,
-    cleans the text, checks toxicity, then writes everything to a single output file.
-    Returns a list of dicts: [{'filename':..., 'toxicity':..., 'cleaned_text':...}, ...]
+    cleans the text, checks toxicity, then writes ONLY the items 
+    with toxicity < 'toxicity_threshold' to 'output_path'.
+
+    Returns a list of dicts for ALL items (including the ones that got skipped):
+      [
+        {'filename':..., 'toxicity':..., 'cleaned_text':...},
+        ...
+      ]
+
+    You can use the 'toxicity_threshold' param to define your 
+    cutoff (default=0.5). 
+    If 'skip_toxic' is True, we do not write items exceeding that threshold 
+    to the final corpus.
     """
     valid_paths = [fp for fp in file_paths if os.path.isfile(fp)]
     if not valid_paths:
@@ -121,28 +133,37 @@ def ingest_files(file_paths, output_path="combined_corpus.txt", max_workers=None
         max_workers = min(32, (multiprocessing.cpu_count() or 1) + 4)
 
     logging.info(f"Starting ingestion of {len(valid_paths)} files with {max_workers} workers...")
-
     results = []
     try:
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             for file_info in executor.map(process_file, valid_paths):
-                # If process_file returns None for any reason, replace with a default dict
                 if not file_info or not isinstance(file_info, dict):
                     file_info = {
                         "filename": "unknown",
                         "cleaned_text": "",
                         "toxicity": 0.0
                     }
-                # Append to results
                 results.append(file_info)
 
-        # Write to disk
+        # If skip_toxic is True, we only write the items with toxicity < threshold
+        # Keep track how many are skipped
+        included_items = []
+        skip_count = 0
+        for r in results:
+            if skip_toxic and r["toxicity"] >= toxicity_threshold:
+                skip_count += 1
+            else:
+                included_items.append(r)
+
         with open(output_path, 'w', encoding='utf-8') as out_f:
-            for r in results:
-                out_f.write(f"=== File: {r['filename']} (Toxicity: {r['toxicity']:.2f}) ===\n")
-                out_f.write(r["cleaned_text"] + "\n\n")
+            for item in included_items:
+                out_f.write(f"=== File: {item['filename']} (Toxicity: {item['toxicity']:.2f}) ===\n")
+                out_f.write(item["cleaned_text"] + "\n\n")
 
         logging.info(f"Combined cleaned text saved to {output_path}")
+        if skip_toxic:
+            logging.info(f"Skipped {skip_count} items above toxicity threshold {toxicity_threshold}")
+
     except Exception as e:
         logging.error(f"Could not write to output file '{output_path}': {e}")
 
@@ -155,5 +176,7 @@ if __name__ == "__main__":
         "sample2.docx",
         "mental_health_notes.txt"
     ]
-    data = ingest_files(sample_files, output_path="combined_corpus.txt")
-    print(data)  # e.g. see the toxicity metadata
+    data = ingest_files(sample_files, output_path="combined_corpus.txt", skip_toxic=True, toxicity_threshold=0.5)
+    # 'data' contains all items, but the final corpus only has those with toxicity < 0.5.
+    print(data)
+
