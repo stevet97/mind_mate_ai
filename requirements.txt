@@ -5,4 +5,6 @@ requests
 google-api-python-client
 google-auth
 google-auth-oauthlib
-transformers
+transformers>=4.20
+torch>=1.12
+sentencepiece
