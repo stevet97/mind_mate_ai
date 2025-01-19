@@ -6,6 +6,7 @@ import docx
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 
+# Make sure this import is valid; if your toxic_filter is in a different location, adjust accordingly.
 from toxic_filter.toxic_filter import get_toxicity_score
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -95,6 +96,8 @@ def process_file(path):
     else:
         tox_score = float(tox_score)
 
+    # DEBUG: show the final dictionary returned for each file
+    logging.debug(f"Processed {os.path.basename(path)} => toxicity={tox_score:.2f}, length={len(cleaned)} chars")
     return {
         "filename": os.path.basename(path),
         "cleaned_text": cleaned,
@@ -124,6 +127,9 @@ def ingest_files(
     If 'skip_toxic' is True, we do not write items exceeding that threshold 
     to the final corpus.
     """
+    logging.info(f"ingest_files called with skip_toxic={skip_toxic}, toxicity_threshold={toxicity_threshold}")
+    logging.debug(f"Raw file_paths => {file_paths}")
+
     valid_paths = [fp for fp in file_paths if os.path.isfile(fp)]
     if not valid_paths:
         logging.error("No valid file paths found. Exiting ingestion.")
@@ -133,11 +139,13 @@ def ingest_files(
         max_workers = min(32, (multiprocessing.cpu_count() or 1) + 4)
 
     logging.info(f"Starting ingestion of {len(valid_paths)} files with {max_workers} workers...")
+
     results = []
     try:
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             for file_info in executor.map(process_file, valid_paths):
                 if not file_info or not isinstance(file_info, dict):
+                    logging.warning(f"Process returned an invalid object: {file_info}")
                     file_info = {
                         "filename": "unknown",
                         "cleaned_text": "",
@@ -145,38 +153,52 @@ def ingest_files(
                     }
                 results.append(file_info)
 
+        logging.debug(f"Total items processed => {len(results)}")
+
         # If skip_toxic is True, we only write the items with toxicity < threshold
-        # Keep track how many are skipped
         included_items = []
         skip_count = 0
+
         for r in results:
+            # extra debug
+            logging.debug(f"Item => {r['filename']}, toxicity={r['toxicity']:.2f}")
             if skip_toxic and r["toxicity"] >= toxicity_threshold:
                 skip_count += 1
+                logging.info(f"Skipping {r['filename']} for toxicity={r['toxicity']:.2f}")
             else:
                 included_items.append(r)
 
-        with open(output_path, 'w', encoding='utf-8') as out_f:
-            for item in included_items:
-                out_f.write(f"=== File: {item['filename']} (Toxicity: {item['toxicity']:.2f}) ===\n")
-                out_f.write(item["cleaned_text"] + "\n\n")
+        logging.info(f"{len(included_items)} items included; {skip_count} items skipped.")
 
-        logging.info(f"Combined cleaned text saved to {output_path}")
-        if skip_toxic:
-            logging.info(f"Skipped {skip_count} items above toxicity threshold {toxicity_threshold}")
+        try:
+            with open(output_path, 'w', encoding='utf-8') as out_f:
+                for item in included_items:
+                    out_f.write(f"=== File: {item['filename']} (Toxicity: {item['toxicity']:.2f}) ===\n")
+                    out_f.write(item["cleaned_text"] + "\n\n")
+            logging.info(f"Combined cleaned text saved to {output_path}")
+        except Exception as write_err:
+            logging.error(f"Could not write to output file '{output_path}': {write_err}")
 
     except Exception as e:
-        logging.error(f"Could not write to output file '{output_path}': {e}")
+        logging.error(f"Error during concurrency or final write: {e}")
+
+    # DEBUG: Show final results array size
+    logging.debug(f"Returning results => {len(results)} items total (some may be skipped in the file).")
 
     return results
 
 if __name__ == "__main__":
-    set_logging_level(logging.INFO)
+    set_logging_level(logging.DEBUG)  # default to debug for local runs
     sample_files = [
         "sample1.pdf",
         "sample2.docx",
         "mental_health_notes.txt"
     ]
-    data = ingest_files(sample_files, output_path="combined_corpus.txt", skip_toxic=True, toxicity_threshold=0.5)
-    # 'data' contains all items, but the final corpus only has those with toxicity < 0.5.
+    data = ingest_files(
+        sample_files,
+        output_path="combined_corpus.txt",
+        skip_toxic=True,
+        toxicity_threshold=0.5
+    )
     print(data)
 
