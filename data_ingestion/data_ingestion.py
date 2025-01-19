@@ -1,17 +1,20 @@
+# data_ingestion/data_ingestion.py
+
 import logging
 import os
 import re
 import pdfplumber
 import docx
-from concurrent.futures import ProcessPoolExecutor  # or ThreadPoolExecutor
 import multiprocessing
+from concurrent.futures import ProcessPoolExecutor  # or ThreadPoolExecutor
+
+# Import the toxicity function from our separate module
+from toxic_filter.toxic_filter import is_toxic
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-
 def set_logging_level(level=logging.INFO):
     logging.getLogger().setLevel(level)
-
 
 def read_pdf(pdf_path):
     try:
@@ -26,7 +29,6 @@ def read_pdf(pdf_path):
         logging.error(f"Error reading PDF '{pdf_path}': {e}")
         return ""
 
-
 def read_docx(docx_path):
     try:
         document = docx.Document(docx_path)
@@ -36,7 +38,6 @@ def read_docx(docx_path):
         logging.error(f"Error reading DOCX '{docx_path}': {e}")
         return ""
 
-
 def read_txt(txt_path):
     try:
         with open(txt_path, 'r', encoding='utf-8') as f:
@@ -45,11 +46,9 @@ def read_txt(txt_path):
         logging.error(f"Error reading TXT '{txt_path}': {e}")
         return ""
 
-
 def domain_specific_clean(text):
     # Add any extra steps unique to mental-health data.
     return text
-
 
 def clean_text(text):
     # Remove URLs
@@ -61,7 +60,6 @@ def clean_text(text):
     text = domain_specific_clean(text)
 
     return text
-
 
 def read_and_clean_file(path):
     if not os.path.isfile(path):
@@ -78,25 +76,22 @@ def read_and_clean_file(path):
     else:
         logging.warning(f"Skipping unknown file type: {path}")
         return ""
-        
-# Basic cleaning
+
+    # Basic cleaning
     text = clean_text(raw_text)
 
-    # 1) Check toxicity
+    # Check toxicity
     if is_toxic(text, threshold=0.5):
         logging.warning(f"Skipping toxic content in file: {path}")
         return ""
 
     return text
 
-
 def ingest_files(file_paths, output_path="combined_corpus.txt", max_workers=None):
     """
     Reads multiple file types (PDF, DOCX, TXT) using multiprocessing,
     cleans the text, then writes everything to a single output file.
-
-    We gather the processed text in the parent process (to avoid
-    file-handle issues) and then write it all in one pass.
+    We gather the processed text in the parent process and skip toxic data.
     """
     valid_paths = [fp for fp in file_paths if os.path.isfile(fp)]
     if not valid_paths:
@@ -108,19 +103,14 @@ def ingest_files(file_paths, output_path="combined_corpus.txt", max_workers=None
 
     logging.info(f"Starting ingestion of {len(valid_paths)} files with {max_workers} workers...")
 
-    # Use a list to collect processed texts (avoid streaming in child processes)
     processed_texts = []
     try:
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # read_and_clean_file returns a string
             results = executor.map(read_and_clean_file, valid_paths)
-
-            # Gather results in the parent
             for text in results:
                 if text:
                     processed_texts.append(text)
 
-        # Now write the combined result in the parent process
         with open(output_path, 'w', encoding='utf-8') as out_f:
             for txt in processed_texts:
                 out_f.write(txt + "\n")
@@ -129,15 +119,11 @@ def ingest_files(file_paths, output_path="combined_corpus.txt", max_workers=None
     except Exception as e:
         logging.error(f"Could not write to output file '{output_path}': {e}")
 
-
 if __name__ == "__main__":
     set_logging_level(logging.INFO)
-
     sample_files = [
         "sample1.pdf",
         "sample2.docx",
         "mental_health_notes.txt"
     ]
     ingest_files(sample_files, output_path="combined_corpus.txt")
-
-
