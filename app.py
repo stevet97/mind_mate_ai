@@ -1,80 +1,37 @@
+# app.py
 import streamlit as st
 import os
 import datetime
 import logging
-# Hugging Face Transformers
-from transformers import pipeline
 
-# 1) google client libraries
+# google client libraries
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# 2) import concurrency ingestion logic from data_ingestion.py
+# import concurrency ingestion logic from data_ingestion.py
+# which in turn imports is_toxic from toxic_filter
 from data_ingestion.data_ingestion import ingest_files
 
-########################################
 # GLOBAL: SET LOGGING LEVEL
-########################################
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-########################################
-# Setup a TOXICITY CLASSIFIER pipeline
-########################################
-toxicity_classifier = pipeline(
-    "text-classification",
-    model="textdetox/xlmr-large-toxicity-classifier"
-)
-
-def is_toxic(text, threshold=0.5):
-    """
-    Classify text using the pipeline. If label == 'TOXIC' and score >= threshold,
-    we consider it toxic.
-    """
-    # For very large texts, you might want to chunk or sample. Example:
-    truncated_text = text[:1000]  # first 1000 chars
-    results = toxicity_classifier(truncated_text)
-
-    # Example result structure: [{"label": "TOXIC", "score": 0.99}]
-    for r in results:
-        if r["label"].upper() == "TOXIC" and r["score"] >= threshold:
-            return True
-    return False
-
-########################################
+##############################
 # Authenticate with google drive
-########################################
+##############################
 def get_drive_service():
-    """
-    Loads service account credentials from Streamlit secrets and
-    returns a Google Drive API service resource.
-    """
-    # st.secrets["google_service_account"] should be a dict with your JSON data
     creds_dict = st.secrets["google_service_account"]
-
     credentials = service_account.Credentials.from_service_account_info(
-        creds_dict,
-        scopes=["https://www.googleapis.com/auth/drive"]
+        creds_dict, scopes=["https://www.googleapis.com/auth/drive"]
     )
-    service = build("drive", "v3", credentials=credentials)
-    return service
-
-
+    return build("drive", "v3", credentials=credentials)
 
 def upload_to_gdrive(local_file_path, folder_id="1fpMg9W19LF6YDJVjgUq2aylUqPfF1M"):
-    """
-    Uploads a local file to Google Drive in the folder:
-      'My Drive / NOVA_project_data' (ID: 1fpMg9W19LF6YDJVjgUq2aylUqPfF1M).
-    
-    Using the googleapiclient library for the Drive API.
-    Adjust as needed for your environment.
-    """
     service = get_drive_service()
-
-    file_name = os.path.basename(local_file_path)  # e.g. "combined_corpus.txt"
+    file_name = os.path.basename(local_file_path)
     file_metadata = {
         "name": file_name,
-        "parents": [folder_id]  # This places the file in the desired folder
+        "parents": [folder_id]
     }
 
     media = MediaFileUpload(local_file_path, resumable=True)
@@ -89,12 +46,10 @@ def upload_to_gdrive(local_file_path, folder_id="1fpMg9W19LF6YDJVjgUq2aylUqPfF1M
 ##############################
 # The Streamlit App
 ##############################
-
 def main():
     st.title("Data Ingestion & Google Drive Upload")
     st.write("Upload your documents here to train the language model.")
-    
-    # Updated folder display name
+
     GDRIVE_FOLDER_NAME = "My Drive / NOVA_project_data"
     st.info(f"Note: All ingested files will be uploaded to **{GDRIVE_FOLDER_NAME}**.")
 
@@ -104,7 +59,6 @@ def main():
         type=["pdf", "docx", "txt"]
     )
 
-    # If user has uploaded some files, show them in a list
     if uploaded_files:
         st.subheader("Files ready to be ingested:")
         for uf in uploaded_files:
@@ -112,13 +66,11 @@ def main():
     else:
         st.info("No files uploaded yet. Upload some to begin.")
 
-    # Let user click a button to ingest and upload
     if st.button("Ingest & Upload to Drive"):
         if not uploaded_files:
             st.warning("Please upload at least one file.")
             return
 
-        # 1) Save files locally first
         file_paths = []
         with st.spinner("Saving uploaded files locally..."):
             os.makedirs("user_uploads", exist_ok=True)
@@ -128,26 +80,23 @@ def main():
                     f.write(uf.getbuffer())
                 file_paths.append(saved_path)
 
-        # 2) Ingest them into combined_corpus.txt + unique file names
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = f"combined_corpus_{timestamp}.txt"
+
         with st.spinner("Ingesting files..."):
             ingest_files(file_paths, output_path=output_path)
-        
-        # 3) Announce we’re uploading to Google Drive
+
         st.info(f"Uploading **{output_path}** to Google Drive folder: {GDRIVE_FOLDER_NAME}")
 
-        # 4) Actually upload to Drive
-        folder_id = "1fpMg9W19LF6YDJVjgUq2aylUqPfF1M0R"  
+        folder_id = "1fpMg9W19LF6YDJVjgUq2aylUqPfF1M0R"
         try:
             upload_to_gdrive(output_path, folder_id=folder_id)
             st.success("Files have been ingested and uploaded to Google Drive successfully!")
-            st.balloons()  # A fun Streamlit effect
+            st.balloons()
         except Exception as e:
             st.error(f"Upload to Drive failed: {e}")
             return
         
-        # 5) Provide a download button for the combined corpus if you like
         st.write("---")
         st.write("You can also download the combined_corpus.txt directly here:")
         with open(output_path, "rb") as f:
