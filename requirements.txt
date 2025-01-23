@@ -1,4 +1,4 @@
---upgrade pip
+pip install --upgrade pip
 streamlit==1.25.0
 pdfplumber==0.9.0
 pillow==9.3.0
