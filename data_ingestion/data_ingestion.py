@@ -5,7 +5,7 @@ import os
 import re
 import docx
 import multiprocessing
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 from pypdf import PdfReader  # Replaces pdfplumber
 
@@ -141,7 +141,7 @@ def ingest_files(
 
     results = []
     try:
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for file_info in executor.map(process_file, valid_paths):
                 if not file_info or not isinstance(file_info, dict):
                     logging.warning(f"Process returned invalid object: {file_info}")
