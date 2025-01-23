@@ -1,5 +1,6 @@
 streamlit==1.25.0
 pdfplumber==0.7.5
+pillow
 python-docx==0.8.11
 requests==2.31.0
 google-api-python-client==2.93.0
