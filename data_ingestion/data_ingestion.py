@@ -3,12 +3,13 @@
 import logging
 import os
 import re
-import pdfplumber
 import docx
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 
-# Ensure the import path is correct for your project:
+from pypdf import PdfReader  # Replaces pdfplumber
+
+# If you're using a custom toxicity filter:
 from toxic_filter.toxic_filter import get_toxicity_score
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -17,13 +18,16 @@ def set_logging_level(level=logging.INFO):
     logging.getLogger().setLevel(level)
 
 def read_pdf(pdf_path):
+    """
+    Extracts text from a PDF using pypdf (pure Python).
+    """
     try:
-        with pdfplumber.open(pdf_path) as pdf:
-            texts = []
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    texts.append(page_text)
+        reader = PdfReader(pdf_path)
+        texts = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                texts.append(page_text)
         return "\n".join(texts)
     except Exception as e:
         logging.error(f"Error reading PDF '{pdf_path}': {e}")
