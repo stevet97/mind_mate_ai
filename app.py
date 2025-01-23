@@ -8,6 +8,7 @@ from googleapiclient.http import MediaFileUpload
 
 # Import the ingestion function from data_ingestion/data_ingestion.py
 from data_ingestion.data_ingestion import ingest_files
+from toxic_filter.toxic_filter import get_toxicity_score
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
