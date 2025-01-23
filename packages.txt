@@ -1,0 +1,5 @@
+libjpeg-dev
+zlib1g-dev
+libfreetype6-dev
+libopenjp2-7
+libtiff5
