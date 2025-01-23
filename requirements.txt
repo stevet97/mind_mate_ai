@@ -1,5 +1,5 @@
 streamlit==1.25.0
-pdfplumber==0.7.5
+pdfplumber
 pillow==10.0.0
 python-docx==0.8.11
 requests==2.31.0
