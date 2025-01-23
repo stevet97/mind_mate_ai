@@ -6,6 +6,6 @@ google-api-python-client==2.93.0
 google-auth==2.21.0
 google-auth-oauthlib==0.4.6
 oauth2client==3.0.0
-# torch==2.0.1
-transformers==4.28.1
-sentencepiece==0.1.99
+torch              # let pip pick a CPU wheel
+transformers       # no version pinned or 4.28.1 or 4.31.0
+sentencepiece
