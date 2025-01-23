@@ -175,13 +175,4 @@ def ingest_files(
     logging.debug(f"Returning results => {len(results)} total items processed.")
     return results
 
-if __name__ == "__main__":
-    set_logging_level(logging.DEBUG)
-    sample_files = ["sample1.pdf", "sample2.docx", "mental_health_notes.txt"]
-    data = ingest_files(
-        sample_files,
-        output_path="combined_corpus.txt",
-        skip_toxic=True,
-        toxicity_threshold=0.5
-    )
-    print(data)
+
