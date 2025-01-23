@@ -2,7 +2,7 @@ streamlit==1.25.0
 pdfplumber==0.7.5
 python-docx==0.8.11
 requests==2.31.0
-google-api-python-client==2.1000.0
+google-api-python-client==2.93.0
 google-auth==2.21.0
 google-auth-oauthlib==0.4.6
 oauth2client==3.0.0
