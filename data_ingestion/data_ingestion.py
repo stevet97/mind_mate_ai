@@ -6,177 +6,97 @@ import re
 import docx
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
+from pypdf import PdfReader  # Using PyPDF for better PDF parsing
 
-from pypdf import PdfReader  # Replaces pdfplumber
-
-# If you're using a custom toxicity filter:
+# Import toxicity filter
 from toxic_filter.toxic_filter import get_toxicity_score
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-def set_logging_level(level=logging.INFO):
-    logging.getLogger().setLevel(level)
+def clean_text(text):
+    """Removes unwanted elements like extra spaces, URLs, and timestamps."""
+    text = re.sub(r'http\S+', '', text)  # Remove URLs
+    text = re.sub(r'\d{2}/\d{2}/\d{4}, \d{2}:\d{2}', '', text)  # Remove timestamps
+    text = re.sub(r'\s+', ' ', text).strip()  # Remove extra spaces/newlines
+    return text
 
-def read_pdf(pdf_path):
-    """
-    Extracts text from a PDF using pypdf (pure Python).
-    """
+def extract_pdf_text(pdf_path):
+    """Extracts text from a PDF file while preserving structure."""
     try:
         reader = PdfReader(pdf_path)
         texts = []
         for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                texts.append(page_text)
-        return "\n".join(texts)
+            text = page.extract_text()
+            if text:
+                texts.append(text.strip())
+        return clean_text("\n".join(texts))
     except Exception as e:
-        logging.error(f"Error reading PDF '{pdf_path}': {e}")
+        logging.error(f"Error extracting text from PDF {pdf_path}: {e}")
         return ""
 
-def read_docx(docx_path):
+def extract_docx_text(docx_path):
+    """Extracts text from a DOCX file while preserving formatting."""
     try:
         document = docx.Document(docx_path)
-        paragraphs = [p.text for p in document.paragraphs]
-        return "\n".join(paragraphs)
+        paragraphs = [p.text.strip() for p in document.paragraphs if p.text.strip()]
+        return clean_text("\n".join(paragraphs))
     except Exception as e:
-        logging.error(f"Error reading DOCX '{docx_path}': {e}")
+        logging.error(f"Error extracting text from DOCX {docx_path}: {e}")
         return ""
 
-def read_txt(txt_path):
+def extract_txt_text(txt_path):
+    """Reads text from a TXT file."""
     try:
         with open(txt_path, 'r', encoding='utf-8') as f:
-            return f.read()
+            return clean_text(f.read())
     except Exception as e:
-        logging.error(f"Error reading TXT '{txt_path}': {e}")
+        logging.error(f"Error reading TXT {txt_path}: {e}")
         return ""
 
-def domain_specific_clean(text):
-    # Add mental-health-specific or domain-specific cleaning here if needed
-    return text
-
-def clean_text(text):
-    # Remove URLs
-    text = re.sub(r"http\S+", "", text)
-    # Remove multiple spaces/newlines
-    text = re.sub(r"\s+", " ", text).strip()
-    # Additional domain cleaning
-    text = domain_specific_clean(text)
-    return text
-
-def process_file(path):
-    """
-    Returns:
-    {
-      'filename': <str>,
-      'cleaned_text': <str>,
-      'toxicity': <float>
-    }
-    """
-    if not os.path.isfile(path):
-        logging.warning(f"Skipping non-existent file: {path}")
-        return {
-            "filename": os.path.basename(path),
-            "cleaned_text": "",
-            "toxicity": 0.0
-        }
-
-    ext = os.path.splitext(path)[1].lower()
+def process_file(file_path):
+    """Processes a file, extracts text, cleans it, and computes toxicity."""
+    if not os.path.isfile(file_path):
+        logging.warning(f"Skipping non-existent file: {file_path}")
+        return None
+    
+    ext = os.path.splitext(file_path)[1].lower()
     if ext == ".pdf":
-        raw_text = read_pdf(path)
+        raw_text = extract_pdf_text(file_path)
     elif ext == ".docx":
-        raw_text = read_docx(path)
+        raw_text = extract_docx_text(file_path)
     elif ext == ".txt":
-        raw_text = read_txt(path)
+        raw_text = extract_txt_text(file_path)
     else:
-        logging.warning(f"Skipping unknown file type: {path}")
-        return {
-            "filename": os.path.basename(path),
-            "cleaned_text": "",
-            "toxicity": 0.0
-        }
-
-    cleaned = clean_text(raw_text)
-    tox_score = get_toxicity_score(cleaned, max_length=1000) or 0.0
-    tox_score = float(tox_score)
-
+        logging.warning(f"Skipping unsupported file type: {file_path}")
+        return None
+    
+    cleaned_text = clean_text(raw_text)
+    toxicity_score = get_toxicity_score(cleaned_text, max_length=2000) or 0.0
     return {
-        "filename": os.path.basename(path),
-        "cleaned_text": cleaned,
-        "toxicity": tox_score
+        "filename": os.path.basename(file_path),
+        "cleaned_text": cleaned_text,
+        "toxicity": round(float(toxicity_score), 4)
     }
 
-def ingest_files(
-    file_paths,
-    output_path="combined_corpus.txt",
-    max_workers=None,
-    skip_toxic=True,
-    toxicity_threshold=0.5
-):
-    """
-    Reads multiple file types (PDF, DOCX, TXT) using multiprocessing,
-    cleans the text, checks toxicity, then writes ONLY the items 
-    with toxicity < 'toxicity_threshold' to 'output_path'.
-
-    Returns a list of dicts for ALL items (including those that got skipped):
-    [
-      {'filename':..., 'toxicity':..., 'cleaned_text':...},
-      ...
-    ]
-
-    If 'skip_toxic' is True, we do not write items with toxicity >= threshold 
-    into the final corpus.
-    """
-    logging.info(f"ingest_files called with skip_toxic={skip_toxic}, toxicity_threshold={toxicity_threshold}")
-    logging.debug(f"Raw file_paths => {file_paths}")
-
+def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, skip_toxic=True, toxicity_threshold=0.5):
+    """Ingests files, processes them in parallel, and saves clean text."""
     valid_paths = [fp for fp in file_paths if os.path.isfile(fp)]
     if not valid_paths:
         logging.error("No valid file paths found. Exiting ingestion.")
         return []
-
-    if max_workers is None:
-        max_workers = min(32, (multiprocessing.cpu_count() or 1) + 4)
-
-    logging.info(f"Starting ingestion of {len(valid_paths)} files with {max_workers} workers...")
-
-    results = []
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = list(executor.map(process_file, valid_paths))
+    
+    filtered_results = [r for r in results if r and (not skip_toxic or r["toxicity"] < toxicity_threshold)]
+    
     try:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for file_info in executor.map(process_file, valid_paths):
-                if not file_info or not isinstance(file_info, dict):
-                    logging.warning(f"Process returned invalid object: {file_info}")
-                    file_info = {
-                        "filename": "unknown",
-                        "cleaned_text": "",
-                        "toxicity": 0.0
-                    }
-                results.append(file_info)
-
-        included_items = []
-        skip_count = 0
-        for r in results:
-            # Decide to skip or keep
-            if skip_toxic and r["toxicity"] >= toxicity_threshold:
-                skip_count += 1
-                logging.info(f"Skipping {r['filename']} for toxicity={r['toxicity']:.2f}")
-            else:
-                included_items.append(r)
-
-        # Write only included items
-        try:
-            with open(output_path, 'w', encoding='utf-8') as out_f:
-                for item in included_items:
-                    out_f.write(f"=== File: {item['filename']} (Toxicity: {item['toxicity']:.2f}) ===\n")
-                    out_f.write(item["cleaned_text"] + "\n\n")
-            logging.info(f"Combined cleaned text saved to {output_path}")
-            logging.info(f"{len(included_items)} items included; {skip_count} items skipped.")
-        except Exception as write_err:
-            logging.error(f"Could not write to output file '{output_path}': {write_err}")
-
-    except Exception as e:
-        logging.error(f"Error during concurrency or final write: {e}")
-
-    logging.debug(f"Returning results => {len(results)} total items processed.")
-    return results
-
-
+        with open(output_path, 'w', encoding='utf-8') as f:
+            for item in filtered_results:
+                f.write(f"=== File: {item['filename']} (Toxicity: {item['toxicity']}) ===\n")
+                f.write(item["cleaned_text"] + "\n\n")
+        logging.info(f"Saved cleaned text to {output_path} ({len(filtered_results)} files included)")
+    except Exception as write_err:
+        logging.error(f"Failed to write output file: {write_err}")
+    
+    return filtered_results
