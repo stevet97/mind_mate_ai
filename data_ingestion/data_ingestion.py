@@ -55,28 +55,41 @@ def extract_txt_text(txt_path):
 
 def process_file(file_path):
     """Processes a file, extracts text, cleans it, and computes toxicity."""
-    if not os.path.isfile(file_path):
-        logging.warning(f"Skipping non-existent file: {file_path}")
-        return None
-    
-    ext = os.path.splitext(file_path)[1].lower()
-    if ext == ".pdf":
-        raw_text = extract_pdf_text(file_path)
-    elif ext == ".docx":
-        raw_text = extract_docx_text(file_path)
-    elif ext == ".txt":
-        raw_text = extract_txt_text(file_path)
-    else:
-        logging.warning(f"Skipping unsupported file type: {file_path}")
-        return None
-    
-    cleaned_text = clean_text(raw_text)
-    toxicity_score = get_toxicity_score(cleaned_text, max_length=2000) or 0.0
-    return {
-        "filename": os.path.basename(file_path),
-        "cleaned_text": cleaned_text,
-        "toxicity": round(float(toxicity_score), 4)
-    }
+    try:
+        if not os.path.isfile(file_path):
+            logging.warning(f"Skipping non-existent file: {file_path}")
+            return None
+
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == ".pdf":
+            raw_text = extract_pdf_text(file_path)
+        elif ext == ".docx":
+            raw_text = extract_docx_text(file_path)
+        elif ext == ".txt":
+            raw_text = extract_txt_text(file_path)
+        else:
+            logging.warning(f"Skipping unsupported file type: {file_path}")
+            return None
+
+        if not raw_text.strip():
+            logging.warning(f"Skipping empty file: {file_path}")
+            return None
+
+        cleaned_text = clean_text(raw_text)
+
+        # Ensure we do not exceed model input limits
+        truncated_text = cleaned_text[:2000]  
+        toxicity_score = get_toxicity_score(truncated_text) or 0.0
+
+        return {
+            "filename": os.path.basename(file_path),
+            "cleaned_text": cleaned_text,
+            "toxicity": round(float(toxicity_score), 4)
+        }
+
+    except Exception as e:
+        logging.error(f"Error processing file {file_path}: {e}")
+        return None  # Ensures execution continues even if one file fails
 
 def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, skip_toxic=True, toxicity_threshold=0.5):
     """Ingests files, processes them in parallel, and saves clean text."""
@@ -84,10 +97,22 @@ def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, sk
     if not valid_paths:
         logging.error("No valid file paths found. Exiting ingestion.")
         return []
+
+    logging.info(f"Processing {len(valid_paths)} files with {max_workers} workers...")
     
+    results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = list(executor.map(process_file, valid_paths))
-    
+        future_to_file = {executor.submit(process_file, path): path for path in valid_paths}
+
+        for future in future_to_file:
+            try:
+                result = future.result(timeout=15)  # Ensures workers do not hang indefinitely
+                if result:
+                    results.append(result)
+            except Exception as e:
+                logging.error(f"Worker failed on {future_to_file[future]}: {e}")
+
+    # Filter results based on toxicity
     filtered_results = [r for r in results if r and (not skip_toxic or r["toxicity"] < toxicity_threshold)]
     
     try:
@@ -98,5 +123,6 @@ def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, sk
         logging.info(f"Saved cleaned text to {output_path} ({len(filtered_results)} files included)")
     except Exception as write_err:
         logging.error(f"Failed to write output file: {write_err}")
-    
+
     return filtered_results
+
