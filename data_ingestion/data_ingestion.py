@@ -47,9 +47,17 @@ def filter_excessive_eos(tokens, eos_id, max_repeats=2):
     return filtered_tokens
 
 def trim_eos(tokens, eos_id):
-    """Removes excessive EOS tokens from the end of sequences."""
+    """Removes excessive EOS tokens from the end of sequences and logs if excessive trimming occurs."""
+    initial_length = len(tokens)
+
     while tokens and tokens[-1] == eos_id:
         tokens.pop()
+
+    trimmed_length = len(tokens)
+
+    if initial_length - trimmed_length > 5:  # Log warning if more than 5 EOS tokens are removed
+        logging.warning(f"⚠️ Trimmed {initial_length - trimmed_length} excessive EOS tokens.")
+
     return tokens
 
 def extract_text(file_path):
@@ -86,6 +94,9 @@ def process_file(file_path):
             logging.warning(f"Skipping empty file: {file_path}")
             return None
 
+        # Ensure text is properly encoded before tokenization
+        raw_text = raw_text.encode("utf-8", "ignore").decode()
+
         # Tokenization step
         encoded = tokenizer(raw_text, return_tensors="pt")["input_ids"].tolist()[0]
         eos_id = tokenizer.eos_token_id
@@ -103,8 +114,10 @@ def process_file(file_path):
         # Decode cleaned text
         cleaned_text = tokenizer.decode(trimmed_tokens)
 
-        # Ensure we do not exceed model input limits
-        truncated_text = cleaned_text[:2000]
+        # Dynamically determine max length based on tokenizer config
+        max_length = tokenizer.model_max_length  
+        truncated_text = cleaned_text[:max_length]  # Truncate based on model token limit
+
         toxicity_score = get_toxicity_score(truncated_text) or 0.0
 
         return {
