@@ -25,6 +25,9 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text).strip()  # Remove extra spaces/newlines
     text = re.sub(r'(\*|-)\s+', '\n• ', text)  # Convert bullet points into a consistent format
     text = re.sub(r'\(Link:\s*(.*?)\)', r' [→ \1]', text)  # Fix broken hyperlinks
+    text = re.sub(r'\(Link:\s*\)', '', text)  # Remove empty Link tags
+    text = re.sub(r'\(Link:\s*[^)]+\)', '', text)  # Remove any remaining "Link: ..." placeholders
+
     return text
 
 def filter_excessive_eos(tokens, eos_id, max_repeats=2):
