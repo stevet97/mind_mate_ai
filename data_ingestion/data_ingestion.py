@@ -1,25 +1,24 @@
 # data_ingestion/data_ingestion.py
-
 import logging
 import os
 import re
 import docx
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
-from pypdf import PdfReader
+from pypdf import PdfReader  # Using PyPDF for better PDF parsing
 from collections import Counter
-from transformers import AutoTokenizer, AutoModel
-from huggingface_hub import login
-
-# (Optional) Login if your model is private
-# login(token="your_huggingface_token")  # Uncomment and add your token if needed
+from transformers import AutoTokenizer, AutoModel  # ✅ Importing required transformers modules
 
 # Define model name
 model_name = "StevesInfinityDrive/DeepSeek-R1-Distill-Qwen-1.0B"
 
 # Ensure the model is downloaded and cached locally
-tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir="./local_model")
-model = AutoModel.from_pretrained(model_name, cache_dir="./local_model")
+try:
+    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir="./local_model")
+    model = AutoModel.from_pretrained(model_name, cache_dir="./local_model")
+    logging.info(f"✅ Successfully loaded model: {model_name}")
+except Exception as e:
+    logging.error(f"❌ Failed to load model: {e}")
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
