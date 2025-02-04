@@ -84,36 +84,40 @@ def process_file(file_path, max_file_size_mb=10, timeout=30):
             logging.warning(f"Skipping non-existent file: {file_path}")
             return None
 
-            # Check file size
-    file_size = os.path.getsize(file_path) / (1024 * 1024)  # Convert to MB
-    if file_size > max_file_size_mb:
-        logging.warning(f"⚠️ Skipping large file: {file_path} ({file_size:.2f}MB)")
+        try:
+            file_size = os.path.getsize(file_path) / (1024 * 1024)  # Convert to MB
+            if file_size > max_file_size_mb:
+                logging.warning(f"⚠️ Skipping large file: {file_path} ({file_size:.2f}MB)")
+                return None
+        except Exception as e:
+            logging.error(f"❌ Error checking file size for {file_path}: {e}")
+            return None
+
+        start_time = time.time()
+        raw_text = extract_text(file_path)
+        if not raw_text:
+            return None
+
+        truncated_text = raw_text[:2000]
+        toxicity_score = get_toxicity_score(truncated_text) or 0.0
+
+        elapsed_time = round(time.time() - start_time, 2)
+        if elapsed_time > timeout:
+            logging.warning(f"⚠️ Processing took too long ({elapsed_time}s), skipping file: {file_path}")
+            return None
+
+        logging.info(f"✅ Processed: {os.path.basename(file_path)} | Length: {len(truncated_text)} chars | Toxicity: {toxicity_score} | Time: {elapsed_time}s")
+
+        return {
+            "filename": os.path.basename(file_path),
+            "cleaned_text": truncated_text,
+            "toxicity": round(float(toxicity_score), 4)
+        }
+
+    except Exception as e:
+        logging.error(f"❌ Error processing file {file_path}: {e}")
         return None
 
-    start_time = time.time()
-    raw_text = extract_text(file_path)
-    if not raw_text:
-        return None
-
-    truncated_text = raw_text[:2000]
-    toxicity_score = get_toxicity_score(truncated_text) or 0.0
-
-    elapsed_time = round(time.time() - start_time, 2)
-    if elapsed_time > timeout:
-        logging.warning(f"⚠️ Processing took too long ({elapsed_time}s), skipping file: {file_path}")
-        return None
-
-    logging.info(f"✅ Processed: {os.path.basename(file_path)} | Length: {len(truncated_text)} chars | Toxicity: {toxicity_score} | Time: {elapsed_time}s")
-
-    return {
-        "filename": os.path.basename(file_path),
-        "cleaned_text": truncated_text,
-        "toxicity": round(float(toxicity_score), 4)
-    }
-
-except Exception as e:
-    logging.error(f"❌ Error processing file {file_path}: {e}")
-    return None
 
 
 
