@@ -1,23 +1,30 @@
 # data_ingestion/data_ingestion.py
 
-
 import logging
 import os
 import re
 import docx
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
-from pypdf import PdfReader  # Using PyPDF for better PDF parsing
+from pypdf import PdfReader
 from collections import Counter
+from transformers import AutoTokenizer, AutoModel
+from huggingface_hub import login
 
-# Import tokenizer (Ensure you define this earlier in your Streamlit app)
-from transformers import AutoTokenizer
-tokenizer = AutoTokenizer.from_pretrained("StevesInfinityDrive/DeepSeek-R1-Distill-Qwen-1.0B")  # Replace with actual model
+# (Optional) Login if your model is private
+# login(token="your_huggingface_token")  # Uncomment and add your token if needed
+
+# Define model name
+model_name = "StevesInfinityDrive/DeepSeek-R1-Distill-Qwen-1.0B"
+
+# Ensure the model is downloaded and cached locally
+tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir="./local_model")
+model = AutoModel.from_pretrained(model_name, cache_dir="./local_model")
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 # Import toxicity filter
 from toxic_filter.toxic_filter import get_toxicity_score
-
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 def clean_text(text):
     """Removes unwanted elements like extra spaces, URLs, timestamps, and fixes bullet points and hyperlinks."""
