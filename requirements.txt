@@ -12,3 +12,5 @@ sentencepiece
 pypdf
 pytesseract
 pdf2image
+torchvision
+torchaudio
