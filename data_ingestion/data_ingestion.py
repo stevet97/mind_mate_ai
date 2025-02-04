@@ -9,7 +9,7 @@ from collections import Counter
 
 # Import tokenizer (Ensure you define this earlier in your Streamlit app)
 from transformers import AutoTokenizer
-tokenizer = AutoTokenizer.from_pretrained("StevesInfinityDrive/DeepSeek-R1-Distill-Qwen-1.0B")  # Replace with actual model
+# tokenizer = AutoTokenizer.from_pretrained("StevesInfinityDrive/DeepSeek-R1-Distill-Qwen-1.0B")  # Replace with actual model
 
 # Import toxicity filter
 from toxic_filter.toxic_filter import get_toxicity_score
