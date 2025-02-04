@@ -7,10 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pypdf import PdfReader  # Using PyPDF for better PDF parsing
 from collections import Counter
 
-# Import tokenizer (Ensure you define this earlier in your Streamlit app)
-from transformers import AutoTokenizer
-# tokenizer = AutoTokenizer.from_pretrained("StevesInfinityDrive/DeepSeek-R1-Distill-Qwen-1.0B")  # Replace with actual model
-
 # Import toxicity filter
 from toxic_filter.toxic_filter import get_toxicity_score
 
@@ -25,28 +21,6 @@ def clean_text(text):
     text = re.sub(r'\(Link:\s*(.*?)\)', r' [→ \1]', text)  # Fix broken hyperlinks
     return text
 
-def filter_excessive_eos(tokens, eos_id, max_repeats=2):
-    """Filters excessive consecutive EOS tokens."""
-    filtered_tokens = []
-    eos_count = 0
-
-    for token in tokens:
-        if token == eos_id:
-            eos_count += 1
-            if eos_count <= max_repeats:  # Allow max_repeats EOS tokens
-                filtered_tokens.append(token)
-        else:
-            eos_count = 0
-            filtered_tokens.append(token)
-
-    return filtered_tokens
-
-def trim_eos(tokens, eos_id):
-    """Removes excessive EOS tokens from the end of sequences."""
-    while tokens and tokens[-1] == eos_id:
-        tokens.pop()
-    return tokens
-
 def extract_text(file_path):
     """Extracts text from PDF, DOCX, or TXT files while preserving structure."""
     ext = os.path.splitext(file_path)[1].lower()
@@ -54,57 +28,45 @@ def extract_text(file_path):
         if ext == ".pdf":
             reader = PdfReader(file_path)
             texts = [page.extract_text().strip() for page in reader.pages if page.extract_text()]
-            return clean_text("\n".join(texts))
+            extracted_text = "\n".join(texts)
         elif ext == ".docx":
             document = docx.Document(file_path)
-            paragraphs = [p.text.strip() for p in document.paragraphs if p.text.strip()]
-            return clean_text("\n".join(paragraphs))
+            extracted_text = "\n".join([p.text.strip() for p in document.paragraphs if p.text.strip()])
         elif ext == ".txt":
             with open(file_path, 'r', encoding='utf-8') as f:
-                return clean_text(f.read())
+                extracted_text = f.read()
         else:
             logging.warning(f"Skipping unsupported file type: {file_path}")
             return None
+
+        if not extracted_text.strip():
+            logging.warning(f"⚠️ No valid text extracted from: {file_path}")
+            return None
+
+        return clean_text(extracted_text)
+
     except Exception as e:
         logging.error(f"Error extracting text from {file_path}: {e}")
         return None
 
 def process_file(file_path):
-    """Processes a file, extracts text, cleans it, tokenizes, and applies EOS filtering."""
+    """Processes a file, extracts text, and applies toxicity filtering."""
     try:
         if not os.path.isfile(file_path):
             logging.warning(f"Skipping non-existent file: {file_path}")
             return None
 
         raw_text = extract_text(file_path)
-        if not raw_text or not raw_text.strip():
-            logging.warning(f"Skipping empty file: {file_path}")
+        if not raw_text:
             return None
 
-        # Tokenization step
-        encoded = tokenizer(raw_text, return_tensors="pt")["input_ids"].tolist()[0]
-        eos_id = tokenizer.eos_token_id
-
-        # Analyze EOS token frequency
-        eos_count = Counter(encoded)
-        excessive_eos_count = sum(1 for _ in re.finditer(rf"({eos_id}\s*){{3,}}", " ".join(map(str, encoded))))
-
-        logging.info(f"🔍 File: {os.path.basename(file_path)} | EOS Count: {eos_count[eos_id]} | Excessive EOS Sequences: {excessive_eos_count}")
-
-        # Apply EOS filtering and trimming
-        filtered_tokens = filter_excessive_eos(encoded, eos_id)
-        trimmed_tokens = trim_eos(filtered_tokens, eos_id)
-
-        # Decode cleaned text
-        cleaned_text = tokenizer.decode(trimmed_tokens)
-
-        # Ensure we do not exceed model input limits
-        truncated_text = cleaned_text[:2000]
+        # Ensure we do not exceed processing limits
+        truncated_text = raw_text[:2000]
         toxicity_score = get_toxicity_score(truncated_text) or 0.0
 
         return {
             "filename": os.path.basename(file_path),
-            "cleaned_text": cleaned_text,
+            "cleaned_text": truncated_text,
             "toxicity": round(float(toxicity_score), 4)
         }
 
@@ -144,9 +106,10 @@ def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, sk
             for item in filtered_results:
                 f.write(f"=== File: {item['filename']} (Toxicity: {item['toxicity']}) ===\n")
                 f.write(item["cleaned_text"] + "\n\n")
-        logging.info(f"Saved cleaned text to {output_path} ({len(filtered_results)} files included)")
+        logging.info(f"✅ Saved cleaned text to {output_path} ({len(filtered_results)} files included)")
     except Exception as write_err:
         logging.error(f"Failed to write output file: {write_err}")
 
     return filtered_results
+
 
