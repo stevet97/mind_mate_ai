@@ -129,10 +129,13 @@ def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, sk
             try:
                 result = future.result(timeout=15)
                 if result:
+                    logging.info(f"✅ Processed: {result['filename']} | Text Length: {len(result['cleaned_text'])} | Toxicity: {result['toxicity']}")
                     results.append(result)
+                else:
+                    logging.warning(f"⚠️ No valid text extracted from: {future_to_file[future]}")
             except Exception as e:
                 logging.error(f"Worker failed on {future_to_file[future]}: {e}")
-
+                
     # Filter results based on toxicity
     filtered_results = [r for r in results if r and (not skip_toxic or r["toxicity"] < toxicity_threshold)]
 
