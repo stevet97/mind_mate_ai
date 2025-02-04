@@ -118,58 +118,22 @@ def process_file(file_path, max_file_size_mb=10, timeout=30):
         return None
 
 
-def ingest_files(file_paths, output_path="cleaned_corpus.jsonl", max_workers=4, skip_toxic=True, toxicity_threshold=0.5, max_retries=1):
-    """Ingests files, processes them in parallel with retries, and saves cleaned text in JSONL format."""
-    valid_paths = [fp for fp in file_paths if os.path.isfile(fp)]
-    if not valid_paths:
-        logging.error("No valid file paths found. Exiting ingestion.")
+def ingest_uploaded_files(uploaded_files, output_path="cleaned_corpus.jsonl"):
+    """Ingests dynamically uploaded files from Streamlit, processes them, and saves in JSONL format."""
+    if not uploaded_files:
+        st.warning("⚠️ No files uploaded. Please upload some files.")
         return []
 
-    logging.info(f"Processing {len(valid_paths)} files with {max_workers} workers...")
+    logging.info(f"Processing {len(uploaded_files)} uploaded files...")
 
     results = []
     failed_files = []
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for path in valid_paths:
-            retries = 0
-            while retries <= max_retries:
-                future = executor.submit(process_file, path)
-                try:
-                    result = future.result(timeout=20)
-                    if result:
-                        logging.info(f"✅ Processed: {result['filename']} | Text Length: {len(result['cleaned_text'])} | Toxicity: {result['toxicity']}")
-                        results.append(result)
-                        break  # Stop retrying if successful
-                    else:
-                        logging.warning(f"⚠️ No valid text extracted from: {path}")
-                except Exception as e:
-                    logging.error(f"❌ Error processing {path} (Attempt {retries + 1}/{max_retries + 1}): {e}")
-                    retries += 1
-                    time.sleep(1)  # Small delay before retrying
+    for uploaded_file in uploaded_files:
+        try:
+            # Save file temporarily
+            file_path = os.pa
 
-                if retries > max_retries:
-                    logging.error(f"❌ Skipping {path} after {max_retries + 1} failed attempts.")
-                    failed_files.append(path)
-
-    # Filter results based on toxicity
-    filtered_results = [r for r in results if r and (not skip_toxic or r["toxicity"] < toxicity_threshold)]
-
-    # ✅ Save output in JSONL format for NLP training
-    try:
-        with open(output_path, 'w', encoding='utf-8') as f:
-            for item in filtered_results:
-                json.dump({"text": item["cleaned_text"]}, f)
-                f.write("\n")
-        logging.info(f"✅ Saved cleaned text to {output_path} ({len(filtered_results)} files included)")
-    except Exception as write_err:
-        logging.error(f"Failed to write output file: {write_err}")
-
-    # Log failed files separately
-    if failed_files:
-        logging.warning(f"⚠️ {len(failed_files)} files failed after all retry attempts: {failed_files}")
-
-    return filtered_results
 
 
 
