@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import time
+import json
 import docx
 import pytesseract
 import multiprocessing
@@ -10,12 +11,13 @@ from pypdf import PdfReader  # Using PyPDF for better PDF parsing
 from collections import Counter
 from pdf2image import convert_from_path
 from time import sleep
-
+import streamlit as st
 
 # Import toxicity filter
 from toxic_filter.toxic_filter import get_toxicity_score
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
 
 def clean_text(text):
     """Removes unwanted elements like extra spaces, URLs, timestamps, legal disclaimers, and broken formatting."""
@@ -28,14 +30,11 @@ def clean_text(text):
     # Remove privacy, cookie policies, and navigation menus
     text = re.sub(r'\b(privacy policy|cookie policy|terms of use|contact us|site map|all rights reserved)\b.*', '', text, flags=re.IGNORECASE)
 
+    # Remove website navigation text (e.g., "Home > Advice > Teens")
+    text = re.sub(r'^(Home|Menu|Search|Forum|Helpline|Advice|How we can help|Get involved|Forum).*$', '', text, flags=re.MULTILINE)
+    
     return text
 
-import logging
-import os
-import docx
-from pypdf import PdfReader
-from pdf2image import convert_from_path
-import pytesseract
 
 def extract_text(file_path, use_ocr=False):
     """
@@ -79,7 +78,7 @@ def extract_text(file_path, use_ocr=False):
         logging.error(f"❌ Error extracting text from {file_path}: {e}")
         return None
 
-        
+
 def process_file(file_path, max_file_size_mb=10, timeout=30):
     """Processes a file, extracts text, and applies toxicity filtering."""
     try:
@@ -119,8 +118,8 @@ def process_file(file_path, max_file_size_mb=10, timeout=30):
         return None
 
 
-def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, skip_toxic=True, toxicity_threshold=0.5, max_retries=1):
-    """Ingests files, processes them in parallel with retries, and saves cleaned text."""
+def ingest_files(file_paths, output_path="cleaned_corpus.jsonl", max_workers=4, skip_toxic=True, toxicity_threshold=0.5, max_retries=1):
+    """Ingests files, processes them in parallel with retries, and saves cleaned text in JSONL format."""
     valid_paths = [fp for fp in file_paths if os.path.isfile(fp)]
     if not valid_paths:
         logging.error("No valid file paths found. Exiting ingestion.")
@@ -156,11 +155,12 @@ def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, sk
     # Filter results based on toxicity
     filtered_results = [r for r in results if r and (not skip_toxic or r["toxicity"] < toxicity_threshold)]
 
+    # ✅ Save output in JSONL format for NLP training
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
             for item in filtered_results:
-                f.write(f"=== File: {item['filename']} (Toxicity: {item['toxicity']}) ===\n")
-                f.write(item["cleaned_text"] + "\n\n")
+                json.dump({"text": item["cleaned_text"]}, f)
+                f.write("\n")
         logging.info(f"✅ Saved cleaned text to {output_path} ({len(filtered_results)} files included)")
     except Exception as write_err:
         logging.error(f"Failed to write output file: {write_err}")
@@ -170,6 +170,7 @@ def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, sk
         logging.warning(f"⚠️ {len(failed_files)} files failed after all retry attempts: {failed_files}")
 
     return filtered_results
+
 
 
 
