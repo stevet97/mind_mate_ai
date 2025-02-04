@@ -30,8 +30,18 @@ def clean_text(text):
 
     return text
 
-def extract_text(file_path):
-    """Extracts text from PDF, DOCX, or TXT files while preserving structure."""
+import logging
+import os
+import docx
+from pypdf import PdfReader
+from pdf2image import convert_from_path
+import pytesseract
+
+def extract_text(file_path, use_ocr=False):
+    """
+    Extracts text from PDF, DOCX, or TXT files while preserving structure.
+    - `use_ocr`: If True, OCR will be applied to image-based PDFs.
+    """
     ext = os.path.splitext(file_path)[1].lower()
     try:
         extracted_text = ""
@@ -41,8 +51,9 @@ def extract_text(file_path):
             texts = [page.extract_text() for page in reader.pages if page.extract_text()]
             extracted_text = "\n".join(texts)
 
-            if not extracted_text.strip():  # Fallback to OCR if no text extracted
-                logging.warning(f"⚠️ No text extracted from {file_path}, trying OCR...")
+            # ✅ Only use OCR if explicitly enabled and PyPDF fails
+            if use_ocr and not extracted_text.strip():
+                logging.warning(f"⚠️ No text found in {file_path}. Using OCR...")
                 images = convert_from_path(file_path)
                 extracted_text = "\n".join([pytesseract.image_to_string(img) for img in images])
 
@@ -67,6 +78,7 @@ def extract_text(file_path):
     except Exception as e:
         logging.error(f"❌ Error extracting text from {file_path}: {e}")
         return None
+
         
 def process_file(file_path, max_file_size_mb=10, timeout=30):
     """Processes a file, extracts text, and applies toxicity filtering."""
