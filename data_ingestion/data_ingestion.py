@@ -1,5 +1,6 @@
 # data_ingestion/data_ingestion.py
 
+
 import logging
 import os
 import re
@@ -8,23 +9,15 @@ import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from pypdf import PdfReader  # Using PyPDF for better PDF parsing
 from collections import Counter
-from transformers import AutoTokenizer, AutoModel  # ✅ Importing required transformers modules
 
-# Define model name
-model_name = "StevesInfinityDrive/DeepSeek-R1-Distill-Qwen-1.0B"
-
-# Ensure the model is downloaded and cached locally
-try:
-    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir="./local_model")
-    model = AutoModel.from_pretrained(model_name, cache_dir="./local_model")
-    logging.info(f"✅ Successfully loaded model: {model_name}")
-except Exception as e:
-    logging.error(f"❌ Failed to load model: {e}")
-
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+# Import tokenizer (Ensure you define this earlier in your Streamlit app)
+from transformers import AutoTokenizer
+tokenizer = AutoTokenizer.from_pretrained("StevesInfinityDrive/DeepSeek-R1-Distill-Qwen-1.0B")  # Replace with actual model
 
 # Import toxicity filter
 from toxic_filter.toxic_filter import get_toxicity_score
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 def clean_text(text):
     """Removes unwanted elements like extra spaces, URLs, timestamps, and fixes bullet points and hyperlinks."""
@@ -105,24 +98,19 @@ def process_file(file_path):
         # Ensure text is properly encoded before tokenization
         raw_text = raw_text.encode("utf-8", "ignore").decode()
 
-        # Proper tokenization
-        tokenized = tokenizer(raw_text, return_tensors="pt", truncation=True, padding=True)
-        encoded = tokenized["input_ids"][0].tolist()
-
+        # Tokenization step
+        encoded = tokenizer(raw_text, return_tensors="pt")["input_ids"].tolist()[0]
         eos_id = tokenizer.eos_token_id
 
-        # Debugging EOS issue
-        logging.info(f"🟡 Before EOS filtering: {len(encoded)} tokens")
+        # Analyze EOS token frequency
+        eos_count = Counter(encoded)
+        excessive_eos_count = sum(1 for _ in re.finditer(rf"({eos_id}\s*){{3,}}", " ".join(map(str, encoded))))
+
+        logging.info(f"🔍 File: {os.path.basename(file_path)} | EOS Count: {eos_count[eos_id]} | Excessive EOS Sequences: {excessive_eos_count}")
 
         # Apply EOS filtering and trimming
-        filtered_tokens = filter_excessive_eos(encoded, eos_id, max_repeats=5)
+        filtered_tokens = filter_excessive_eos(encoded, eos_id)
         trimmed_tokens = trim_eos(filtered_tokens, eos_id)
-
-        logging.info(f"🟢 After filtering: {len(trimmed_tokens)} tokens")
-
-        if not trimmed_tokens:
-            logging.warning(f"⚠️ All tokens were removed for {file_path}. Skipping file.")
-            return None
 
         # Decode cleaned text
         cleaned_text = tokenizer.decode(trimmed_tokens)
@@ -142,7 +130,6 @@ def process_file(file_path):
     except Exception as e:
         logging.error(f"Error processing file {file_path}: {e}")
         return None
-
 
 def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, skip_toxic=True, toxicity_threshold=0.5):
     """Ingests files, processes them in parallel, and saves cleaned text."""
@@ -178,4 +165,3 @@ def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, sk
         logging.error(f"Failed to write output file: {write_err}")
 
     return filtered_results
-
