@@ -1,5 +1,3 @@
-# data_ingestion/data_ingestion.py
-
 import logging
 import os
 import re
@@ -11,7 +9,7 @@ from collections import Counter
 
 # Import tokenizer (Ensure you define this earlier in your Streamlit app)
 from transformers import AutoTokenizer
-tokenizer = AutoTokenizer.from_pretrained("StevesInfinityDrive/DeepSeek-R1-Distill-Qwen-1.0B")  # Replace with actual model
+tokenizer = AutoTokenizer.from_pretrained("your-model-name")  # Replace with actual model
 
 # Import toxicity filter
 from toxic_filter.toxic_filter import get_toxicity_score
@@ -25,9 +23,6 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text).strip()  # Remove extra spaces/newlines
     text = re.sub(r'(\*|-)\s+', '\n• ', text)  # Convert bullet points into a consistent format
     text = re.sub(r'\(Link:\s*(.*?)\)', r' [→ \1]', text)  # Fix broken hyperlinks
-    text = re.sub(r'\(Link:\s*\)', '', text)  # Remove empty Link tags
-    text = re.sub(r'\(Link:\s*[^)]+\)', '', text)  # Remove any remaining "Link: ..." placeholders
-
     return text
 
 def filter_excessive_eos(tokens, eos_id, max_repeats=2):
@@ -47,17 +42,9 @@ def filter_excessive_eos(tokens, eos_id, max_repeats=2):
     return filtered_tokens
 
 def trim_eos(tokens, eos_id):
-    """Removes excessive EOS tokens from the end of sequences and logs if excessive trimming occurs."""
-    initial_length = len(tokens)
-
+    """Removes excessive EOS tokens from the end of sequences."""
     while tokens and tokens[-1] == eos_id:
         tokens.pop()
-
-    trimmed_length = len(tokens)
-
-    if initial_length - trimmed_length > 5:  # Log warning if more than 5 EOS tokens are removed
-        logging.warning(f"⚠️ Trimmed {initial_length - trimmed_length} excessive EOS tokens.")
-
     return tokens
 
 def extract_text(file_path):
@@ -94,9 +81,6 @@ def process_file(file_path):
             logging.warning(f"Skipping empty file: {file_path}")
             return None
 
-        # Ensure text is properly encoded before tokenization
-        raw_text = raw_text.encode("utf-8", "ignore").decode()
-
         # Tokenization step
         encoded = tokenizer(raw_text, return_tensors="pt")["input_ids"].tolist()[0]
         eos_id = tokenizer.eos_token_id
@@ -114,10 +98,8 @@ def process_file(file_path):
         # Decode cleaned text
         cleaned_text = tokenizer.decode(trimmed_tokens)
 
-        # Dynamically determine max length based on tokenizer config
-        max_length = tokenizer.model_max_length  
-        truncated_text = cleaned_text[:max_length]  # Truncate based on model token limit
-
+        # Ensure we do not exceed model input limits
+        truncated_text = cleaned_text[:2000]
         toxicity_score = get_toxicity_score(truncated_text) or 0.0
 
         return {
@@ -164,3 +146,4 @@ def ingest_files(file_paths, output_path="cleaned_corpus.txt", max_workers=4, sk
         logging.error(f"Failed to write output file: {write_err}")
 
     return filtered_results
+
